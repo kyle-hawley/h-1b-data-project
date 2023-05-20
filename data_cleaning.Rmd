@@ -1,0 +1,304 @@
+---
+title: "Data Project"
+author: "Kyle Hawley"
+date: "2023-04-16"
+output: pdf_document
+---
+
+Little things learned
+- Make a copy of your original data before you edit it
+
+Variables
+- Date
+- State
+- Wage
+- NAICS
+- Accepted
+
+Load in the data, choosing specific columns and renaming them to fit together. 
+```{r}
+library(dplyr)
+
+df <- data.frame(
+  date = character(), # time
+  state = character(), # space
+  status = character(), # function 1
+  wage = numeric(), # function 2
+  wage_type = character(),
+  title = character(), # function 3
+  naics = numeric(),
+  visa = character()
+)
+
+for (year in 10:19) {
+  print(year)
+
+  # Read in the year's H-1B data
+  year_df <- read.csv(paste0("./data_csv/", as.character(year), ".csv"), header = T)
+
+  # Clean the data and rename columns: format depends on year
+  if (year < 15) {
+    year_df_clean <- year_df |>
+      select(
+        LCA_CASE_SUBMIT, LCA_CASE_EMPLOYER_STATE, LCA_CASE_JOB_TITLE, STATUS,
+        PW_1, PW_UNIT_1, LCA_CASE_NAICS_CODE
+      ) |>
+      rename(
+        date = LCA_CASE_SUBMIT,
+        state = LCA_CASE_EMPLOYER_STATE,
+        title = LCA_CASE_JOB_TITLE,
+        status = STATUS,
+        wage = PW_1,
+        wage_type = PW_UNIT_1,
+        naics = LCA_CASE_NAICS_CODE
+      ) |> 
+    	mutate(visa = NA)
+  } else if (year < 17) {
+    year_df_clean <- year_df |>
+      filter(VISA_CLASS == "H-1B") |>
+      select(
+        CASE_SUBMITTED, EMPLOYER_STATE, JOB_TITLE, CASE_STATUS,
+        PREVAILING_WAGE, PW_UNIT_OF_PAY, NAIC_CODE, VISA_CLASS
+      ) |>
+      rename(
+        date = CASE_SUBMITTED,
+        state = EMPLOYER_STATE,
+        title = JOB_TITLE,
+        status = CASE_STATUS,
+        wage = PREVAILING_WAGE,
+        wage_type = PW_UNIT_OF_PAY,
+        naics = NAIC_CODE,
+        visa = VISA_CLASS
+      )
+  } else if (year < 19) {
+    year_df_clean <- year_df |>
+      filter(VISA_CLASS == "H-1B") |>
+      select(
+        CASE_SUBMITTED, EMPLOYER_STATE, JOB_TITLE, CASE_STATUS,
+        PREVAILING_WAGE, PW_UNIT_OF_PAY, NAICS_CODE, VISA_CLASS
+      ) |>
+      rename(
+        date = CASE_SUBMITTED,
+        state = EMPLOYER_STATE,
+        title = JOB_TITLE,
+        status = CASE_STATUS,
+        wage = PREVAILING_WAGE,
+        wage_type = PW_UNIT_OF_PAY,
+        naics = NAICS_CODE,
+        visa = VISA_CLASS
+      )
+  } else if (year < 20) {
+    year_df_clean <- year_df |>
+      filter(VISA_CLASS == "H-1B") |>
+      select(
+        CASE_SUBMITTED, EMPLOYER_STATE, JOB_TITLE, CASE_STATUS,
+        PREVAILING_WAGE_1, PW_UNIT_OF_PAY_1, NAICS_CODE, VISA_CLASS
+      ) |>
+      rename(
+        date = CASE_SUBMITTED,
+        state = EMPLOYER_STATE,
+        title = JOB_TITLE,
+        status = CASE_STATUS,
+        wage = PREVAILING_WAGE_1,
+        wage_type = PW_UNIT_OF_PAY_1,
+        naics = NAICS_CODE,
+        visa = VISA_CLASS
+      )
+  } 
+  # Append the data to the main df
+  df <- rbind(df, year_df_clean)
+}
+
+for (year in 20:22) {
+  	for (quarter in 1:4) {
+  		
+  		print(year)
+			print(quarter)
+			
+  		year_df <- read.csv(paste0("./data_csv/", as.character(year), ".", as.character(quarter), ".csv"), header = T)
+  		
+  		year_df_clean <- year_df |>
+      filter(VISA_CLASS == "H-1B") |>
+      select(
+        RECEIVED_DATE, EMPLOYER_STATE, JOB_TITLE, CASE_STATUS,
+        PREVAILING_WAGE, PW_UNIT_OF_PAY, NAICS_CODE, VISA_CLASS
+      ) |>
+      rename(
+        date = RECEIVED_DATE,
+        state = EMPLOYER_STATE,
+        title = JOB_TITLE,
+        status = CASE_STATUS,
+        wage = PREVAILING_WAGE,
+        wage_type = PW_UNIT_OF_PAY,
+        naics = NAICS_CODE,
+        visa = VISA_CLASS
+      )
+  		
+  		df <- rbind(df, year_df_clean)
+  	}
+  }
+```
+
+
+```{r}
+write.csv(df, "./data_csv/df_raw_combined.csv", row.names=F)
+df <- read.csv("./data_csv/df_raw_combined.csv")
+```
+
+
+# Dates
+```{r}
+# load a helpful library for parse_date_time
+library(dplyr)
+library(lubridate)
+
+# date formats possibly in the df
+date_formats <- c("ymd", "mdy", "b Y d", "Ymd", "mdy HMS", "mdy HM")
+
+# finds which dates it can convert
+converted_dates <- parse_date_time(df$date, orders = date_formats)
+
+# locates the converted dates
+is_date <- !is.na(converted_dates)
+
+# replaces the converted dates with the conversion and NA where unable to convert
+df$date[is_date] <- format(converted_dates[is_date], "%Y-%m-%d")
+df$date[!is_date] <- NA
+
+# removes data that doesn't have an associated date
+df <- df[complete.cases(df$date), ]
+
+# create a new column with number of days since Jan 1 2008 for plotting purposes
+df <- df |>
+  mutate(days_num = as.numeric(as.Date(df$date)) - as.numeric(as.Date("2009-01-01"))) |> 
+	mutate(months_num = ceiling(as.numeric(interval(ymd("2009-01-01"), df$date) / months(1)))) |>
+	mutate(quarters_num = ceiling(as.numeric(interval(ymd("2009-01-01"), df$date) / months(3)))) |> 
+	mutate(year = year(df$date))
+
+df <- df[df$months_num > 0,]
+```
+
+
+# States
+```{r}
+# list of things that aren't states, sorry Puerto Rico and co.
+not_states <- c("FM", "PW", "MP", "", "VI", "GU", "PR", "AS")
+
+# make them NA
+df <- df |>
+  mutate(state = ifelse(state %in% not_states, NA, state))
+
+# Remove NA rows
+df <- df[complete.cases(df$state), ]
+```
+
+# Wage
+```{r}
+# Remove commas, dollar signs, and make things with non-number NA
+df$wage <- gsub(",", "", df$wage)
+df$wage <- gsub("\\$", "", df$wage)
+
+df$wage <- as.numeric(df$wage)
+
+sum(is.na(df$wage))
+
+for (yr in sort(unique(df$year))) {
+	print(yr)
+	print(sum(is.na(df$wage) & df$year == yr))
+}
+
+# df[which(is.na(df$wage_numeric)) & df$year == 2018,][1:10,]
+
+# Remove NA rows
+df <- df[complete.cases(df$wage), ]
+
+# Scale wage by unit 
+unit_conversion <- c("Year" = 1, "Month" = 12, "Bi-Weekly" = 26, "Week" = 52, "Hour" = 2080)
+
+df <- df |>
+  mutate(wage_scaled = ifelse(wage_type == "Year", wage, wage * unit_conversion[wage_type]))
+
+# Kill NAs
+df <- df[complete.cases(df$wage_scaled), ]
+
+# Remove extreme wages; greater than 1 mil per year
+df <- df[df$wage_scaled < 1e6,]
+```
+
+
+# NAICS
+```{r}
+# Make sure they're all numbers and remove NAs
+df$naics <- as.numeric(df$naics)
+
+sum(is.na(df$naics))
+
+df <- df[complete.cases(df$naics), ]
+
+# Make any non-six-digit number NA
+df$naics[nchar(as.character(df$naics)) != 6] <- NA
+
+# Remove them
+# sum(is.na(df$naics))
+# for (yr in sort(unique(df$year))) {
+# 	print(yr)
+# 	print(sum(is.na(df$naics) & df$year == yr))
+# }
+# 
+# df[which(is.na(df$naics)),][1:5,]
+
+df <- df[complete.cases(df$naics), ]
+
+# Valid NAICS prefixes
+valid_naics_prefixes <- c("11", "21", "22", "23", "31", "32", "33", "42", "44", 
+						  "45", "48", "49", "51", "52", "53", "54", "55", "56", "61", "62", 
+						  "71", "72", "81", "92")
+
+# Industries that have more than one prefix
+man_naics <- c("31", "32", "33")
+ret_naics <- c("44", "45")
+trans_naics <- c("48", "49")
+
+# Change the numbers to characters
+df$naics <- as.character(df$naics)
+
+# Change any invalid prefixes to NA
+df <- df |>
+  mutate(naics_prefix = ifelse(substr(naics, start = 1, stop = 2) %in% valid_naics_prefixes, substr(naics, start = 1, stop = 2) , NA))
+
+# Change any industries with multiple prefixes to the first one
+df <- df |> 
+	mutate(naics_prefix = ifelse(naics_prefix %in% man_naics, "31", naics_prefix)) |> 
+	mutate(naics_prefix = ifelse(naics_prefix %in% ret_naics, "44", naics_prefix)) |> 
+	mutate(naics_prefix = ifelse(naics_prefix %in% trans_naics, "48", naics_prefix))
+
+# Kill the NA's one last time
+df <- df[complete.cases(df$naics_prefix), ]
+```
+
+
+# Accepted
+
+```{r}
+# # potential accepted statuses
+accepted_statuses <- c("CERTIFIED-WITHDRAWN", "CERTIFIED", "Certified", "Certified - Withdrawn")
+
+# creates a new column that marks a binary accepted/denied
+df <- df |>
+  mutate(is_accepted = ifelse(status %in% accepted_statuses, yes = 1, no = 0))
+```
+
+
+```{r}
+write.csv(df, "./data_csv/processed_h-1b_data.csv", row.names=F)
+```
+
+
+
+
+
+
+
+
+
+

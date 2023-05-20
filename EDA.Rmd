@@ -1,0 +1,407 @@
+---
+title: "EDA"
+author: "Kyle Hawley"
+date: "2023-05-03"
+output: pdf_document
+---
+
+TIME
+US STATES
+
+MONEY
+ACCEPTANCE
+INDUSTRY
+
+
+```{r}
+df <- read.csv("./data_csv/processed_h-1b_data.csv")
+```
+
+Useful function for changing NAICS_prefixes to labels
+
+```{r}
+naics_conversion <-  array()
+naics_conversion[11] <- "Agriculture, Forestry, etc."
+naics_conversion[21] <- "Mining"
+naics_conversion[22] <- "Utilities"
+naics_conversion[23] <- "Construction"
+naics_conversion[31] <- "Manufacturing"
+	
+naics_conversion[42] <- "Wholesale Trade"
+naics_conversion[44] <- "Retail Trade"
+naics_conversion[48] <- "Transportation"
+naics_conversion[51] <- "Information"
+naics_conversion[52] <- "Finance and Insurance"
+
+naics_conversion[53] <- "Real Estate"
+naics_conversion[54] <- "Scientific and Technical Services"
+naics_conversion[55] <- "Management of Companies"
+naics_conversion[56] <- "Administrative"
+naics_conversion[61] <- "Educational Services"
+	
+naics_conversion[62] <- "Health Care"
+naics_conversion[71] <- "Arts"
+naics_conversion[72] <- "Food Services"
+naics_conversion[81] <- "Other Services"
+naics_conversion[92] <- "Public Administration"
+
+code_to_label <- function(code) {
+	return(naics_conversion[as.numeric(code)])
+}
+
+```
+
+
+
+
+Average Salary
+
+```{r}
+library(data.table)
+
+# Data table the dataframe
+dt <- data.table(df)
+
+# Create a sequence of dates to include in the output
+# months_seq <- seq(min(dt$months_num, na.rm=T), max(dt$months_num, na.rm=T), by = 1)
+quarters_seq <- seq(min(dt$quarters_num, na.rm=T), max(dt$quarters_num, na.rm=T), by = 1)
+
+# Use CJ() to create new data tables with all the months and quarters
+# dt_complete_mo <- CJ(months_num = months_seq)
+dt_complete_qt <- CJ(quarters_num = quarters_seq)
+
+# Join the complete data table with the original data table to fill in missing values with NA
+# dt_joined_mo <- merge(dt_complete_mo, dt, by = "months_num", all.x = TRUE, roll = TRUE)
+dt_joined_qt <- merge(dt_complete_qt, dt, by = "quarters_num", all.x = TRUE, roll = TRUE)
+
+# Calculate the percentage of accepted values for each date and store the result in a variable
+# average_salary_mo <- dt_joined_mo[, mean(wage_scaled, na.rm = TRUE), by = months_num][, V1]
+average_salary_qt <- dt_joined_qt[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+
+# average_salary_mo_norm <- average_salary_mo - mean(average_salary_mo, na.rm=T)
+average_salary_qt_norm <- average_salary_qt - mean(average_salary_qt, na.rm=T)
+
+# length(months_seq)
+# length(average_salary_mo)
+
+# length(quarters_seq)
+# length(average_salary_qt)
+
+# plot(months_seq, average_salary_mo, type="l")
+plot(quarters_seq, average_salary_qt, type="l", main="Overall Mean Wage", 
+		 xlab="Quarters since 2009", ylab="Wage")
+plot(quarters_seq, average_salary_qt_norm, type='l', main="Mean Wage Normalized", ylab="", xlab="Quarters since 2009")
+```
+
+Certification Rates
+
+```{r}
+for (code in sort(unique(df$naics_prefix))) {
+	dt_code <- dt[naics_prefix == code]
+	
+	percent <- sum(dt_code$is_accepted, na.rm=T) / nrow(dt_code)
+	
+	print(paste0(code_to_label(code), ": ", round(percent,3)))
+}
+```
+
+# Average salary by Code
+
+```{r}
+
+for (code in sort(unique(df$naics_prefix))) {
+	dt_code <- dt[naics_prefix == code]
+	dt_joined <- merge(dt_complete_qt, dt_code, by = "quarters_num", all.x = TRUE, roll = TRUE)
+	
+  ind_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+  
+  plot(quarters_seq, ind_wage_mean, main=code_to_label(code), type="l", xlab = "Quarters since 2009", ylab="Mean Wage ($)", ylim=c(40000, 110000))
+  points(quarters_seq, average_salary_qt, col="red", type="l")
+  legend("bottomright", legend = c("overall mean", "industry mean"), col = c("red", "black"), lwd = 2)
+}
+
+```
+
+Average wage grouped by state
+
+```{r}
+for (state_obs in unique(df$state)) {
+	
+	dt_w_state <- dt[state == state_obs]
+	dt_joined <- merge(dt_complete_qt, dt_w_state, by = "quarters_num", all.x = TRUE, roll = TRUE)
+	
+  state_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+  
+  plot(quarters_seq, state_wage_mean, main=state_obs, type="l",
+  		 xlab="Quarters since 2009", ylab="Mean Wage ($)")
+  points(quarters_seq, average_salary_qt, col="red", type="l")
+  legend("bottomright", legend = c("overall mean", "state mean"), col = c("red", "black"), lwd = 2)
+}
+```
+
+
+Number of cases recieved vs. average salary
+
+```{r}
+# Join the complete data table with the original data table to fill in missing values with NA
+dt_joined <- merge(dt_complete_qt, dt, by = "quarters_num", all.x = TRUE, roll = TRUE)
+
+# Calculate the percentage of accepted values for each date and store the result in a variable
+count_by_qt <- dt_joined[, length(naics_prefix), by = quarters_num][, V1]
+
+plot(quarters_seq, count_by_qt, type="l", xaxt="n")
+axis(side = 1, at = seq(1, 180, 4), labels = seq(1, 180, 4), tick = TRUE)
+
+points(quarters_seq, average_salary_qt, type="l", col="red")
+```
+
+
+#Maps
+heatmap of applications by state by year
+
+Getting maps up and off the ground
+
+```{r}
+library(usmap)
+library(ggplot2)
+
+dt <- data.table(df)
+dt_2019 <- dt[year == 2019]
+
+dt_state <- dt_2019[, length(date), by = state][, V1, keyby = state]
+
+popdf <- read.csv("./data_csv/pop.csv")
+popdt <- data.table(popdf)
+colnames(popdt) = c("state", "year", "pop")
+popdt19 <- popdt[year == 2019]
+
+dt_state <- merge(dt_state, popdt19, by = "state")
+dt_state[, percap := V1 / pop]
+dt_state[, percaplog := log(percap)]
+
+p1 <- plot_usmap(data = dt_state, values = "pop", color = "red") + 
+  scale_fill_continuous(name = "Counts", low='white',high='blue') + 
+  theme(legend.position = "right")
+
+p2 <- plot_usmap(data = dt_state, values = "percap", color = "red") + 
+  scale_fill_continuous(name = "Counts", low='white',high='blue') + 
+  theme(legend.position = "right")
+
+p3 <- plot_usmap(data = dt_state, values = "percaplog", color = "red") + 
+  scale_fill_continuous(name = "Counts", low='white',high='blue') + 
+  theme(legend.position = "right")
+
+plot(p1)
+plot(p2)
+plot(p3)
+
+```
+
+
+US Map applications per capita
+```{r}
+popdf <- read.csv("./data_csv/pop.csv")
+popdt <- data.table(popdf)
+colnames(popdt) = c("state", "year", "pop")
+popdt_year <- popdt[year == 2019]
+
+my_colors <- scale_fill_continuous(name = "Applications per capita log scale", limits = c(-11, -3), low='white', high='blue')
+
+
+for (year_ind in sort(unique(dt$year))) {
+	dt_year <- dt[year == year_ind]
+
+	dt_year <- dt_year[, length(date), by = state][, V1, keyby = state]
+	
+	dt_year <- merge(dt_year, popdt_year, by = "state")
+	dt_year[, percap := V1 / pop]
+	dt_year[, percaplog := log(percap)]
+		
+	p1 <- plot_usmap(data = dt_year, values = "percaplog", color = "red") + 
+  	my_colors + 
+  	theme(legend.position = "right") +
+		ggtitle(year_ind)
+	
+	plot(p1)
+}
+
+```
+
+
+Not per cap Maps
+```{r}
+popdf <- read.csv("./data_csv/pop.csv")
+popdt <- data.table(popdf)
+colnames(popdt) = c("state", "year", "pop")
+popdt_year <- popdt[year == 2019]
+
+my_colors <- scale_fill_continuous(name = "Applications per capita log scale", low='white', high='blue')
+
+
+for (year_ind in sort(unique(dt$year))) {
+	dt_year <- dt[year == year_ind]
+
+	dt_year <- dt_year[, length(date), by = state][, V1, keyby = state]
+	
+	dt_year <- merge(dt_year, popdt_year, by = "state")
+	dt_year[, percap := V1 / pop]
+	dt_year[, percaplog := log(percap)]
+		
+	p1 <- plot_usmap(data = dt_year, values = "V1", color = "red") + 
+  	my_colors + 
+  	theme(legend.position = "right") +
+		ggtitle(year_ind)
+	
+	plot(p1)
+}
+
+```
+
+USmap wages 
+
+```{r}
+# pdf("./pdfs/meanWage_by_state_map.pdf", width=12, height = 10)
+my_colors <- scale_fill_continuous(name = "Mean Wage", limits=c(30000, 140000), low='white', high='blue')
+
+for (year_ind in sort(unique(dt$year))) {
+	
+	dt_year <- dt[year == year_ind]
+	dt_year <- dt_year[, mean(wage, na.rm=T), by = state][, V1, keyby = state]
+	dt_year[, logwage := log(V1)]
+	
+	p1 <- plot_usmap(data = dt_year, values = "V1", color = "red") + 
+  	# scale_fill_continuous(name = "wage", low='white',high='blue') +
+		my_colors + 
+  	theme(legend.position = "right") +
+		ggtitle(year_ind)
+	
+	plot(p1, main=year_ind)
+	
+}
+# dev.off()
+```
+
+
+#Back to wages
+Normalized ish
+
+```{r}
+for (code in sort(unique(df$naics_prefix))) {
+	
+	dt_w_code <- dt[naics_prefix == code]
+	dt_joined <- merge(dt_complete_qt, dt_w_code, by = "quarters_num", all.x = TRUE, roll = TRUE)
+	
+  ind_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+  ind_wage_mean_norm <- ind_wage_mean - mean(ind_wage_mean, na.rm=T)
+  
+  plot(quarters_seq, ind_wage_mean_norm, main=code_to_label(code), type="l", xlab = "Quarters since 2009", ylab="Mean Wage ($)")
+  points(quarters_seq, average_salary_qt_norm, col="red", type="l")
+  legend("bottomright", legend = c("overall mean", "ind mean"), col = c("red", "black"), lwd = 2)
+}
+```
+
+
+```{r}
+out <- loess.reg(quarters_seq, average_salary_qt_norm, 1)
+plot.loess(quarters_seq, average_salary_qt_norm, out, "LOESS on Mean Wage" )
+
+# for (i in seq(1, 60, by=4)) {
+# 	abline(v=i, col='gray')
+# }
+
+
+```
+
+
+By month
+
+```{r}
+out <- loess.reg(months, average_salary_mo_norm, 1)
+
+for (code in sort(unique(df$naics_prefix))) {
+	
+	dt_w_code <- dt[naics_prefix == code]
+	dt_joined <- merge(dt_complete_mo, dt_w_code, by = "months_num", all.x = TRUE, roll = TRUE)
+	
+  ind_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = months_num][, V1]
+  ind_wage_mean_norm <- ind_wage_mean - mean(ind_wage_mean, na.rm=T)
+  
+  plot.loess(months, average_salary_mo_norm, out, title=code)
+  points(months, ind_wage_mean_norm, main=code, type="l", xlab = "qt since 2008", ylab="mean wage")
+  # points(months, average_salary_norm, col="red", type="l")
+  legend("bottomright", legend = c("overall mean", "ind mean"), col = c("red", "black"), lwd = 2)
+}
+```
+
+
+By quarters
+
+A note that number 54 makes up 62% of the data
+
+```{r}
+for (code in sort(unique(df$naics_prefix))) {
+	dt_code <- dt[naics_prefix == code]
+	dt_joined <- merge(dt_complete_qt, dt_code, by = "quarters_num", all.x = TRUE, roll = TRUE)
+	
+  ind_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+  ind_wage_mean_norm <- ind_wage_mean - mean(ind_wage_mean, na.rm=T)
+  
+  # if I were keeping values positive
+  # average_salary_qt_norm <- average_salary_qt - (mean(average_salary_qt) - mean(ind_wage_mean, na.rm=T))
+  
+  out <- loess.reg(quarters_seq, average_salary_qt_norm, 1)
+  plot.loess(quarters_seq, average_salary_qt_norm, out, title=code_to_label(code), "Quarters since 2009", "Mean Wage ($)")
+  
+  points(quarters_seq, ind_wage_mean_norm, type="l", lwd=2)
+  
+#   Poisson
+# 	c_upper <- qpois(0.975, ind_wage_mean)
+# 	c_lower <- qpois(0.025, ind_wage_mean)
+#   
+#   points(quarters, c_upper, col="gray", type="l")
+#   points(quarters, c_lower, col="gray", type="l")
+  
+  # simple sd
+  # sd <- sd(ind_wage_mean, na.rm=T)
+  # points(quarters, ind_wage_mean + (2*sd), col='gray', type='l')
+  # points(quarters, ind_wage_mean - (2*sd), col='gray', type='l')
+  
+  
+  simple_linear_reg <- lm(ind_wage_mean ~ quarters_seq)
+  linear_reg_sd <- sd(simple_linear_reg$residuals)
+  
+  points(quarters_seq, (ind_wage_mean_norm + (2*linear_reg_sd)), col='gray', type='l')
+  points(quarters_seq, (ind_wage_mean_norm - (2*linear_reg_sd)), col='gray', type='l')
+  
+  # for (i in seq(1, 60, by=4)) {
+  # 	abline(v=i, col="gray", lwd=1)
+  # }
+}
+```
+
+by state
+
+```{r}
+for (state_obs in sort(unique(df$state))) {
+	dt_w_state <- dt[state == state_obs]
+	dt_joined <- merge(dt_complete_qt, dt_w_state, by = "quarters_num", all.x = TRUE, roll = TRUE)
+	
+  state_wage_mean <- dt_joined[, mean(wage_scaled, na.rm = TRUE), by = quarters_num][, V1]
+  state_wage_mean_norm <- state_wage_mean - mean(state_wage_mean, na.rm=T)
+  
+  plot.loess(quarters, average_salary_qt_norm, out, state_obs)
+  points(quarters, state_wage_mean_norm, main=state_obs, type="l", lwd=2)
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
